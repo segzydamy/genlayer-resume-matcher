@@ -1,0 +1,60 @@
+# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+
+from genlayer import *
+
+class ResumeMatcher(gl.Contract):
+    admin: Address
+    application_count: u32
+    shortlisted_count: u32
+    applications: TreeMap[u32, str]
+
+    def __init__(self):
+        self.admin = gl.message.sender_address
+        self.application_count = u32(0)
+        self.shortlisted_count = u32(0)
+        self.applications = TreeMap()
+
+    @gl.public.write
+    def submit_application(
+        self,
+        candidate_name: str,
+        target_role: str,
+        skills_summary: str,
+        experience_years: u32
+    ) -> str:
+        self.application_count = u32(self.application_count + 1)
+        current_id = self.application_count
+
+        def match_candidate() -> str:
+            prompt = f"""
+            You are a technical recruitment screening consensus agent for a Web3 protocol.
+            Evaluate this applicant profile against role requirements:
+
+            Candidate: {candidate_name}
+            Target Role: {target_role}
+            Experience: {experience_years} years
+            Skills & Background: {skills_summary}
+
+            Return ONLY a valid JSON string:
+            {{"decision": "SHORTLIST", "match_score": 88, "verdict": "Candidate meets senior engineering prerequisites and demonstrates strong Python proficiency."}}
+            or
+            {{"decision": "REJECT", "match_score": 40, "verdict": "Insufficient domain experience for requested seniority."}}
+            """
+            return gl.nondet.exec_prompt(prompt)
+
+        raw_result = gl.eq_principle.strict_eq(match_candidate)
+        clean_result = raw_result.strip().replace("```json", "").replace("```", "")
+
+        if "SHORTLIST" in clean_result.upper():
+            self.shortlisted_count = u32(self.shortlisted_count + 1)
+
+        self.applications[current_id] = clean_result
+        return f"Application #{current_id} evaluated and logged."
+
+    @gl.public.view
+    def get_candidate_evaluation(self, app_id: u32) -> str:
+        return self.applications.get(app_id, "Application not found")
+
+    @gl.public.view
+    def get_recruiting_stats(self) -> str:
+        return f"Total Applications: {self.application_count} | Shortlisted: {self.shortlisted_count}"
